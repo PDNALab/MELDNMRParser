@@ -3,8 +3,20 @@ import textwrap
 import os
 import pickle
 from MELD_NEF_Classes import *
+import argparse
 
-leap = '''source leaprc.protein.ff14SBonlysc
+def parse_args():                              #in line argument parser with help 
+    '''
+    Parse arguments for the program from command line
+    '''
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-nef', type=str, help='NEF input file or object')
+    parser.add_argument('-directory', type=str, help='Where to place the files',default='.')
+    return(parser.parse_args())
+ 
+
+leap = ''' set default pbradii mbondi3
+source leaprc.protein.ff14SBonlysc
 aa = sequence {{ {0} }}
 saveamberparm aa {1}.top {1}.rst7
 quit
@@ -19,13 +31,13 @@ minimize_in = '''Minimize a protein using GB
 '''
 
 
-minimize_gpu = '''source ~/.load_amber
+minimize_gpu = '''source ~/.load_Amber
 pmemd.cuda -O \
     -i min.in \
-    -o min_{0}.out \
-    -c {0}.rst7 \
-    -ref {0}.rst7 \
-    -r min_{0}.rst \
+    -o min_{0}.out  \
+    -c {0}.rst7  \
+    -ref {0}.rst7  \
+    -r min_{0}.rst  \
     -p {0}.top
 
 #Now create a pdb from the restart
@@ -58,12 +70,40 @@ def minimizeGPU(sequence_name):
 
 
 
-NEF = pickle.load(open('/ufrc/alberto.perezant/alberto.perezant/NEF/Forked_NEF/NEF/data_1_1/PDBStat_developers/Perez/trial.nef.pkl','rb'))
-print(NEF.sequences)
 
-die
 
+'''Examples of how to use this module
 
 sequence2amber('MET GLU PHE THR VAL SER THR THR GLU ASP LEU GLN ARG TYR ARG THR GLU CYS VAL SER SER LEU ASN ILE PRO ALA ASP TYR VAL GLU LYS PHE LYS LYS TRP GLU PHE PRO GLU ASP ASP THR THR MET CYS TYR ILE LYS CYS VAL PHE ASN LYS MET GLN LEU PHE ASP ASP THR GLU GLY PRO LEU VAL ASP ASN LEU VAL HIS GLN LEU ALA HIS GLY ARG ASP ALA GLU GLU VAL ARG THR GLU VAL LEU LYS CYS VAL ASP LYS ASN THR ASP ASN ASN ALA CYS HIS TRP ALA PHE ARG GLY PHE LYS CYS PHE GLN LYS ASN ASN LEU SER LEU ILE LYS ALA SER ILE LYS LYS ASP','sequence_A')
 minimizeGPU('sequence_A')
+
+or
+
+NEF = pickle.load(open('/ufrc/alberto.perezant/alberto.perezant/NEF/Forked_NEF/NEF/data_1_1/PDBStat_developers/Perez/trial.nef.pkl','rb'))
+for seq in NEF.sequence_names:
+    sequence2amber(NEF.sequence[seq],seq)
+    minimizeGPU(seq)
+'''
+
+
+def main():
+    args = parse_args()
+    #Work in a temporary directory
+    if args.directory == '.':
+        args.directory = os.getcwd()
+    try:
+        NEF = pickle.load(open(args.nef,'rb'))
+    except:
+        NEF = NEF_system(args.nef,args.directory)
+        NEF.sequence()
+
+    for seq in NEF.sequence_names:
+        sequence2amber(NEF.sequence[seq],seq)
+        minimizeGPU(seq)
+    
+
+
+if __name__ == '__main__': #Python way to execute main()
+    main()
+
 

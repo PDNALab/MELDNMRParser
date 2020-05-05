@@ -122,12 +122,15 @@ class NEF_system:
         '''
         data = self.block_content['molecular_system'].loop_type_data['_nef_sequence']
         chains = data.chain_code.unique()
-        self.sequence = []
+        self.chains = chains
+        self.sequence = {}
+        self.sequence_names = []
         for chain in chains:
             with open('{}/sequence_{}.dat'.format(self.directory,chain),'w') as fo:
                 fo.write(" ".join(data.residue_name[data.chain_code == chain]))
                 fo.write("\n")
-            self.sequence.append(" ".join(data.residue_name[data.chain_code == chain]))
+            self.sequence['sequence_{}'.format(chain)] = " ".join(data.residue_name[data.chain_code == chain])
+            self.sequence_names.append('sequence_{}'.format(chain))
             
 
 
