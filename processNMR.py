@@ -108,14 +108,11 @@ def write_peaks(peaks,min_CO=4):
     for one_peak in peaks.restraint_id.unique():
         selection =  peaks.loc[ peaks['restraint_id'] == one_peak, ['sequence_code_1','atom_name_1','sequence_code_2','atom_name_2','upper_limit'] ]
         trivial = selection.loc[ abs(selection['sequence_code_1'] - selection['sequence_code_2']) < min_CO]
-        print(len(trivial))
-        if len(trivial < 1):
-            print('again',len(trivial))
-            print(selection.to_string(index=False,header=False))
+        if len(trivial) < 1:
             output_noe += selection.to_string(index=False,header=False) 
             output_noe += "\n\n"
 
-    print(output_noe)
+    return (output_noe)
 
 
 def process_sequence(NEF,peaks):
@@ -126,7 +123,6 @@ def process_sequence(NEF,peaks):
     '''
     data = NEF.block_content['molecular_system'].loop_type_data['_nef_sequence']
     numbering = {}
-    print(data)
     for seq,chain,index in zip(data.sequence_code,data.chain_code,data.index):
         numbering[(seq,chain)] = index + 1
 
@@ -196,18 +192,25 @@ for i in NEF.chains:
     for j in NEF.chains:
         NEF.peaks[(i,j)] = []
 
-for NOE in NEF.block_types['distance_restraint_list']:
+
+NEF.active = ['molecular_system']
+for i,NOE in enumerate(NEF.block_types['distance_restraint_list']):
     print(dir(NOE))
+    print(NOE.type,NOE.name)
     distances = NOE.loop_type_data['_nef_distance_restraint']
-    #Now we want to go through chains I-I and I-J
     print(NEF.sequence_names)
     distances = process_peaks(distances)
     distances = process_sequence(NEF,distances)
-    write_peaks(distances)
-    die
-    NOE.loop_type_data['_nef_distance_restraint'] = process_peaks(distances)
-    distances = NOE.loop_type_data['_nef_distance_restraint']
-    write_peaks(distances,NEF.chains)
+    peaks_to_write = write_peaks(distances)
+    #Add the dataframe back into the NEF object, this will be a MELD modified one
+    #ToDO: make a block routine that adds a new block with MELD output NEF
+    NOE.loop_type_data['_nef_distance_restraint'] = distances
+    with open('{}/NOE_{}.dat'.format('.',i),'w') as fo:
+        fo.write(peaks_to_write)
+    NEF.active.append('_'.join([NOE.type,NOE.name]))
+
+NEF.write()
+    
 
 
 def main():

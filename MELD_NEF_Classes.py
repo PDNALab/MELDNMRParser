@@ -105,6 +105,7 @@ class NEF_system:
         txt += header.format(file_name)
         if len(self.active) < 1:
             self.active = self.block_order[1:]
+
         
         for block_name in self.active:
             #update the output object
@@ -242,7 +243,7 @@ class NEF_block:
                 self.process_attributes(loop)
             else:
                 self.process_loop(loop)
-                
+
     def write(self):
         '''Each block object should be able to write itself. First the attributes, then each loop'''
         self.output = '{}\n\n'.format(self.header)
