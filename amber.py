@@ -1,4 +1,4 @@
-import hipergator
+import templates
 import textwrap
 import os
 import pickle
@@ -60,7 +60,7 @@ def sequence2amber(sequence,sequence_name):
 
 def minimizeGPU(sequence_name):
     '''Creates input minimize script, input in and submits job'''
-    txt = hipergator.single_GPU_head.format(sequence_name)
+    txt = templates.single_GPU_head.format(sequence_name)
     txt += minimize_gpu.format(sequence_name)
     with open('min.in','w') as fo:
         fo.write(minimize_in)

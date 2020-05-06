@@ -1,4 +1,4 @@
-import hipergator
+import templates
 import textwrap
 import os
 import pickle
@@ -94,6 +94,42 @@ for aa in aminoacids:
 
 
 
+def write_TALOS_deprecated(dihedrals):
+    '''Dihedrals will be phi or psi. Separate them. Characterize by their resid. Output maximum/minimum values for the dihedral.
+    It is possible that a dihedral could be seen in two conformations--> two NMR peaks, satisfy one according to chemical shfits.
+
+    I'm going to assume that a restraint_id will never correspond to phi and psi at the same time. This is something to confirm with
+    NMR experts
+    '''
+    phi = ''
+    psi = ''
+    for one_peak in dihedrals.restraint_id.unique():
+        selection =  dihedrals.loc[ (dihedrals['restraint_id'] == one_peak) & (dihedrals['name'] == 'PHI'), ['sequence_code_2','lower_limit','upper_limit'] ]
+        if len(selection) > 0:
+            phi += selection.to_string(index=False,header=False) 
+            phi += "\n\n"
+
+        selection =  dihedrals.loc[ (dihedrals['restraint_id'] == one_peak) & (dihedrals['name'] == 'PSI'), ['sequence_code_2','lower_limit','upper_limit'] ]
+        if len(selection) > 0:
+            psi += selection.to_string(index=False,header=False) 
+            psi += "\n\n"
+
+    return (phi,psi)
+
+def write_TALOS(dihedrals):
+    '''Dihedrals will be phi, psi or side chain rotamers. Use general approach keeping each residue number and atom involved.
+    It is possible that a dihedral could be seen in two conformations--> two NMR peaks, satisfy one according to chemical shfits.
+    '''
+    rotamers = ''
+    for one_peak in dihedrals.restraint_id.unique():
+        selection =  dihedrals.loc[ dihedrals['restraint_id'] == one_peak, ['sequence_code_1','atom_name_1','sequence_code_2','atom_name_2','sequence_code_3','atom_name_3','sequence_code_4','atom_name_4','lower_limit','upper_limit'] ]
+        if len(selection) > 0:
+            rotamers += selection.to_string(index=False,header=False) 
+            rotamers += "\n\n"
+
+    return (rotamers)
+
+
 def write_peaks(peaks,min_CO=4):
     '''We get peaks list and write it out. If we did process_peaks before then the peaks
     will be mapped to heavy atoms. if we used process_sequence, atom ordering will be amber-like
@@ -115,11 +151,14 @@ def write_peaks(peaks,min_CO=4):
     return (output_noe)
 
 
-def process_sequence(NEF,peaks):
+def process_sequence(NEF,peaks,TALOS=False):
     '''USe mapping of residues from molecular system block to pass into amber-like topology numbering.
     First residue starts at 1, new chains keep numbering intead of starting over
     Here we run into an issue: pandas has dataframe.index as their internal numbering...starts at 0
     NEF sets the name of the column index which would start at 1 as we would like
+
+    TALOS data has the same keywords but 4 instances to change instead of two. IF the instances exist
+    in the data frame --> change them. Otherwise do not
     '''
     data = NEF.block_content['molecular_system'].loop_type_data['_nef_sequence']
     numbering = {}
@@ -129,6 +168,9 @@ def process_sequence(NEF,peaks):
     for (seq,chain) in numbering.keys():
         peaks.loc[ (peaks['chain_code_1'] == chain) & (peaks['sequence_code_1'] == seq),['sequence_code_1'] ] = numbering[(seq,chain)]
         peaks.loc[ (peaks['chain_code_2'] == chain) & (peaks['sequence_code_2'] == seq),['sequence_code_2'] ] = numbering[(seq,chain)]
+        if TALOS:
+            peaks.loc[ (peaks['chain_code_3'] == chain) & (peaks['sequence_code_3'] == seq),['sequence_code_3'] ] = numbering[(seq,chain)]
+            peaks.loc[ (peaks['chain_code_3'] == chain) & (peaks['sequence_code_4'] == seq),['sequence_code_4'] ] = numbering[(seq,chain)]
 
     return(peaks)
 
@@ -209,7 +251,24 @@ for i,NOE in enumerate(NEF.block_types['distance_restraint_list']):
         fo.write(peaks_to_write)
     NEF.active.append('_'.join([NOE.type,NOE.name]))
 
+
+#dihedrals just need to be  renumbered and then written to NEF/MELD output
+for i,TALOS in enumerate(NEF.block_types['dihedral_restraint_list']):
+    print(dir(TALOS))
+    print(TALOS.type,TALOS.name)
+    dihedrals = TALOS.loop_type_data['_nef_dihedral_restraint']
+    dihedrals = process_sequence(NEF,dihedrals,TALOS=True)
+    rotamers2write = write_TALOS(dihedrals)
+    with open('{}/rotamers_{}.dat'.format('.',i),'w') as fo:
+        fo.write(rotamers2write)
+    TALOS.loop_type_data['_nef_distance_restraint'] = dihedrals
+    NEF.active.append('_'.join([TALOS.type,TALOS.name]))
+
+
 NEF.write()
+with open('MELD_NMR_setup.py','w') as fo:
+    fo.write(templates.meld_NMR_script)
+
     
 
 
