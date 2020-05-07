@@ -127,10 +127,14 @@ class NEF_system:
         self.sequence = {}
         self.sequence_names = []
         for chain in chains:
+            residues = data.residue_name[data.chain_code == chain].values
+            # Add caps. This will fail if not a protein. TODO: make more general
+            residues[0] = 'N{}'.format(residues[0])
+            residues[-1] = 'C{}'.format(residues[-1])
             with open('{}/sequence_{}.dat'.format(self.directory,chain),'w') as fo:
-                fo.write(" ".join(data.residue_name[data.chain_code == chain]))
+                fo.write(" ".join(residues))
                 fo.write("\n")
-            self.sequence['sequence_{}'.format(chain)] = " ".join(data.residue_name[data.chain_code == chain])
+            self.sequence['sequence_{}'.format(chain)] = " ".join(residues)
             self.sequence_names.append('sequence_{}'.format(chain))
             
 

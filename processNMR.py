@@ -12,6 +12,7 @@ def parse_args():                              #in line argument parser with hel
     parser = argparse.ArgumentParser()
     parser.add_argument('-nef', type=str, help='NEF input file or object')
     parser.add_argument('-directory', type=str, help='Where to place the files',default='.')
+    parser.add_argument('-name', type=str, help='Name for job to submit to queues',default='NMR')
     return(parser.parse_args())
  
 
@@ -141,14 +142,18 @@ def write_peaks(peaks,min_CO=4):
     If any possible contact in a peak is trivial, remove the whole peak.
     '''
     output_noe = ''
+    local_noe = ''
     for one_peak in peaks.restraint_id.unique():
         selection =  peaks.loc[ peaks['restraint_id'] == one_peak, ['sequence_code_1','atom_name_1','sequence_code_2','atom_name_2','upper_limit'] ]
         trivial = selection.loc[ abs(selection['sequence_code_1'] - selection['sequence_code_2']) < min_CO]
         if len(trivial) < 1:
             output_noe += selection.to_string(index=False,header=False) 
             output_noe += "\n\n"
+        else:
+            local_noe += selection.to_string(index=False,header=False) 
+            local_noe += "\n\n"
 
-    return (output_noe)
+    return (output_noe,local_noe)
 
 
 def process_sequence(NEF,peaks,TALOS=False):
@@ -226,8 +231,6 @@ def process_peaks(peaks):
 
 
 '''Examples of how to use this module
-'''
-
 NEF = pickle.load(open('/ufrc/alberto.perezant/alberto.perezant/NEF/Forked_NEF/NEF/data_1_1/PDBStat_developers/Perez/trial.nef.pkl','rb'))
 NEF.peaks = {}
 for i in NEF.chains:
@@ -268,7 +271,9 @@ for i,TALOS in enumerate(NEF.block_types['dihedral_restraint_list']):
 NEF.write()
 with open('MELD_NMR_setup.py','w') as fo:
     fo.write(templates.meld_NMR_script)
-
+with open('MELD_job.sh','w') as fo:
+    fo.write(templates.meld_gpu_job.format(args.name))
+'''
     
 
 
@@ -283,14 +288,42 @@ def main():
         NEF = NEF_system(args.nef,args.directory)
         NEF.sequence()
     
-    print(NEF.block_types.keys())
-    #we are interested in 'distance_restraint_list', 'dihedral_restraint_list'
-    for NOE in NEF.block_types['distance_restraint_list']:
-        pass
-    #distance2MELD(NEF
+    NEF.active = ['molecular_system']
+    for i,NOE in enumerate(NEF.block_types['distance_restraint_list']):
+        distances = NOE.loop_type_data['_nef_distance_restraint']
+        distances = process_peaks(distances)
+        distances = process_sequence(NEF,distances)
+        peaks_to_write,local_peaks = write_peaks(distances,min_CO=8)
+        #Add the dataframe back into the NEF object, this will be a MELD modified one
+        #ToDO: make a block routine that adds a new block with MELD output NEF
+        NOE.loop_type_data['_nef_distance_restraint'] = distances
+        with open('{}/local_NOE_{}.dat'.format(args.directory,i),'w') as fo:
+            fo.write(local_peaks)
+        with open('{}/NOE_{}.dat'.format(args.directory,i),'w') as fo:
+            fo.write(peaks_to_write)
+        NEF.active.append('_'.join([NOE.type,NOE.name]))
+    
+    
+    #dihedrals just need to be  renumbered and then written to NEF/MELD output
+    for i,TALOS in enumerate(NEF.block_types['dihedral_restraint_list']):
+        dihedrals = TALOS.loop_type_data['_nef_dihedral_restraint']
+        dihedrals = process_sequence(NEF,dihedrals,TALOS=True)
+        rotamers2write = write_TALOS(dihedrals)
+        with open('{}/rotamers_{}.dat'.format(args.directory,i),'w') as fo:
+            fo.write(rotamers2write)
+        TALOS.loop_type_data['_nef_distance_restraint'] = dihedrals
+        NEF.active.append('_'.join([TALOS.type,TALOS.name]))
+    
+    
+    NEF.write()
+    with open('{}/MELD_NMR_setup.py'.format(args.directory),'w') as fo:
+        fo.write(templates.meld_NMR_script)
+    with open('{}/MELD_job.sh'.format(args.directory),'w') as fo:
+        fo.write(templates.meld_gpu_job.format(args.name))
 
 
-#if __name__ == '__main__': #Python way to execute main()
-    #main()
+
+if __name__ == '__main__': #Python way to execute main()
+    main()
 
 

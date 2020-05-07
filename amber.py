@@ -12,6 +12,7 @@ def parse_args():                              #in line argument parser with hel
     parser = argparse.ArgumentParser()
     parser.add_argument('-nef', type=str, help='NEF input file or object')
     parser.add_argument('-directory', type=str, help='Where to place the files',default='.')
+    parser.add_argument('-submit', type=bool, help='Submit minimizer script?',default='False')
     return(parser.parse_args())
  
 
@@ -58,7 +59,7 @@ def sequence2amber(sequence,sequence_name):
         fo.write(leap.format(sequence,sequence_name))
     os.system('tleap -f tleap.in')
 
-def minimizeGPU(sequence_name):
+def minimizeGPU(sequence_name,submit):
     '''Creates input minimize script, input in and submits job'''
     txt = templates.single_GPU_head.format(sequence_name)
     txt += minimize_gpu.format(sequence_name)
@@ -67,6 +68,8 @@ def minimizeGPU(sequence_name):
     with open('{}.sh'.format(sequence_name),'w') as fo:
         fo.write(txt)
     print('submit job\n sbatch {}.sh'.format(sequence_name))
+    if submit:
+        os.system('sbatch {}.sh'.format(sequence_name))
 
 
 
@@ -99,7 +102,7 @@ def main():
 
     for seq in NEF.sequence_names:
         sequence2amber(NEF.sequence[seq],seq)
-        minimizeGPU(seq)
+        minimizeGPU(seq,args.submit)
     
 
 

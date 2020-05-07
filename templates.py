@@ -90,7 +90,7 @@ def get_torsion_restraints(filename, s, scaler):
             rotamer_max = float(rotamer_max)
             rotamer_min = float(rotamer_min)
             rotamer_avg = (rotamer_max+rotamer_min)/2.
-            rotamer_sd = rotamer_max - rotamer_min
+            rotamer_sd = (rotamer_max - rotamer_min)/2.
             rotamer_rest = s.restraints.create_restraint('torsion', scaler, LinearRamp(0,100,0,1),
                                                  phi=rotamer_avg, delta_phi=rotamer_sd, k=2.5,
                                                  atom_1_res_index=int(res1), atom_1_name=at1,
@@ -125,21 +125,37 @@ def setup_system():
     # Scalers
     #
     distance_scaler = s.restraints.create_scaler('nonlinear', alpha_min=0.4, alpha_max=1.0, factor=4.0)
-    torsion_scaler = s.restraints.create_scaler('constant')
+    constant_scaler = s.restraints.create_scaler('constant')
 
     #
     # Distance Restraints
     #
-    for noe in glob.glob('noe_*.dat'):
+    for noe in glob.glob('NOE_*.dat'):
+        print('loading {} ...'.format(noe))
         NOESY = get_dist_restraints(noe,s,scaler=distance_scaler)
         s.restraints.add_selectively_active_collection(NOESY, int( len(NOESY)*0.95 ) )
+    
+    if len(glob.glob('NOE_*.dat')) < 1:
+        print('WARNING: no highContactOrder NOE data loaded')
+
+    for noe in glob.glob('local_NOE_*.dat'):
+        print('loading {} ...'.format(noe))
+        NOESY = get_dist_restraints(noe,s,scaler=constant_scaler)
+        s.restraints.add_selectively_active_collection(NOESY, int( len(NOESY)*0.95 ) )
+
+    if len(glob.glob('local_NOE_*.dat')) < 1:
+        print('WARNING: no shortContactOrder NOE data loaded')
 
     #
     # Torsion Restraints
     #
     for rotamer in glob.glob('rotamer_*.dat'):
-        TALOS = get_torsion_restraints(rotamer, s, torsion_scaler)
+        print('loading {} ...'.format(rotamer))
+        TALOS = get_torsion_restraints(rotamer, s, constant_scaler)
         s.restraints.add_selectively_active_collection(TALOS, int( len(TALOS) * 0.95) )
+
+    if len(glob.glob('rotamer*.dat')) < 1:
+        print('WARNING: no rotamer data found')
 
 
     #
@@ -223,3 +239,28 @@ def setup_system():
 setup_system()
 '''
 
+meld_gpu_job = '''#!/bin/bash
+#SBATCH --job-name={0}      # Job name
+#SBATCH --mail-type=END,FAIL         # Mail events (NONE, BEGIN, END, FAIL, ALL)
+#SBATCH --ntasks=30      
+#SBATCH --gpus-per-task=1
+#SBATCH --cpus-per-gpu=1
+#SBATCH --mem-per-cpu=2000mb            
+#SBATCH --partition=gpu
+#SBATCH --distribution=cyclic:cyclic
+#SBATCH --reservation=perez
+#SBATCH --mem-per-cpu=2000mb          # Memory per processor
+#SBATCH --time=100:00:00              # Time limit hrs:min:sec
+#SBATCH --output=meld_{0}_%j.log     # Standard output and error log
+ 
+
+
+source ~/.load_OpenMM
+export OPENMM_CUDA_COMPILER=''
+
+if [ -e remd.log ]; then             #If there is a remd.log we are conitnuing a killed simulation
+     prepare_restart --prepare-run  #so we need to prepare_restart
+fi
+
+srun --mpi=pmix_v1  launch_remd --debug
+'''
