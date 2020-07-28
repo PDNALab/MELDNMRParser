@@ -32,9 +32,10 @@ map_to_heavy = {
         ('ASN','HD2y'):(['ND2'],1),
         ('ASP','OD%'):(['OD1','OD2'],0),
         ('GLN','HG%'):(['CG'],1),
-        ('GLN','HE2%'):(['OE1'],1),
-        ('GLN','HE2x'):(['OE1'],1),
-        ('GLN','HE2y'):(['OE1'],1),
+        ('GLN','HE%'):(['NE2'],1),
+        ('GLN','HE2%'):(['NE2'],1),
+        ('GLN','HE2x'):(['NE2'],1),
+        ('GLN','HE2y'):(['NE2'],1),
         ('GLN','HGx'):(['CG'],1),
         ('GLN','HGy'):(['CG'],1,),
         ('GLU','HG%'):(['CG'],1),
@@ -63,6 +64,7 @@ map_to_heavy = {
         ('LYS','HGx'):(['CG'],1),
         ('LYS','HGy'):(['CG'],1),
         ('MET','HG%'):(['CG'],1),
+        ('MET','HE'):(['CE'],1),
         ('MET','HE%'):(['CE'],1),
         ('MET','HGx'):(['CG'],1),
         ('MET','HGy'):(['CG'],1),
@@ -80,6 +82,8 @@ map_to_heavy = {
         ('TYR','HD%'):(['CD'],1),
         ('TYR','HE%'):(['CE'],1),
         ('TYR','CD%'):(['CD1','CD2'],0),
+        ('TYR','CD'):(['CD1','CD2'],0),
+        ('TYR','CE'):(['CE1','CE2'],0),
         ('TYR','CE%'):(['CE1','CE2'],0),
         ('VAL','HG1%'):(['CG1'],1),
         ('VAL','HG2%'):(['CG2'],1),
@@ -305,14 +309,20 @@ def main():
     
     
     #dihedrals just need to be  renumbered and then written to NEF/MELD output
-    for i,TALOS in enumerate(NEF.block_types['dihedral_restraint_list']):
-        dihedrals = TALOS.loop_type_data['_nef_dihedral_restraint']
-        dihedrals = process_sequence(NEF,dihedrals,TALOS=True)
-        rotamers2write = write_TALOS(dihedrals)
-        with open('{}/rotamers_{}.dat'.format(args.directory,i),'w') as fo:
-            fo.write(rotamers2write)
-        TALOS.loop_type_data['_nef_distance_restraint'] = dihedrals
-        NEF.active.append('_'.join([TALOS.type,TALOS.name]))
+    try: 
+        NEF.block_types['dihedral_restraint_list'] 
+        ok = 1
+    except:
+        ok = 0
+    if ok:
+        for i,TALOS in enumerate(NEF.block_types['dihedral_restraint_list']):
+            dihedrals = TALOS.loop_type_data['_nef_dihedral_restraint']
+            dihedrals = process_sequence(NEF,dihedrals,TALOS=True)
+            rotamers2write = write_TALOS(dihedrals)
+            with open('{}/rotamers_{}.dat'.format(args.directory,i),'w') as fo:
+                fo.write(rotamers2write)
+            TALOS.loop_type_data['_nef_distance_restraint'] = dihedrals
+            NEF.active.append('_'.join([TALOS.type,TALOS.name]))
     
     
     NEF.write()

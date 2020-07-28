@@ -30,7 +30,7 @@ import glob as glob
 
 
 N_REPLICAS = 30
-N_STEPS =10000
+N_STEPS =1000
 BLOCK_SIZE = 100
 
 
@@ -124,7 +124,8 @@ def setup_system():
     #
     # Scalers
     #
-    distance_scaler = s.restraints.create_scaler('nonlinear', alpha_min=0.4, alpha_max=1.0, factor=4.0)
+    distance_scaler = s.restraints.create_scaler('nonlinear', alpha_min=0.4, alpha_max=0.8, factor=4.0)
+    distance_scaler_short = s.restraints.create_scaler('nonlinear', alpha_min=0.8, alpha_max=1.0, factor=4.0)
     constant_scaler = s.restraints.create_scaler('constant')
 
     #
@@ -133,15 +134,15 @@ def setup_system():
     for noe in glob.glob('NOE_*.dat'):
         print('loading {} ...'.format(noe))
         NOESY = get_dist_restraints(noe,s,scaler=distance_scaler)
-        s.restraints.add_selectively_active_collection(NOESY, int( len(NOESY)*0.95 ) )
+        s.restraints.add_selectively_active_collection(NOESY, int( len(NOESY)*1.00 ) )
     
     if len(glob.glob('NOE_*.dat')) < 1:
         print('WARNING: no highContactOrder NOE data loaded')
 
     for noe in glob.glob('local_NOE_*.dat'):
         print('loading {} ...'.format(noe))
-        NOESY = get_dist_restraints(noe,s,scaler=constant_scaler)
-        s.restraints.add_selectively_active_collection(NOESY, int( len(NOESY)*0.95 ) )
+        NOESY = get_dist_restraints(noe,s,scaler=distance_scaler_short)
+        s.restraints.add_selectively_active_collection(NOESY, int( len(NOESY)*1.00 ) )
 
     if len(glob.glob('local_NOE_*.dat')) < 1:
         print('WARNING: no shortContactOrder NOE data loaded')
@@ -152,7 +153,7 @@ def setup_system():
     for rotamer in glob.glob('rotamer_*.dat'):
         print('loading {} ...'.format(rotamer))
         TALOS = get_torsion_restraints(rotamer, s, constant_scaler)
-        s.restraints.add_selectively_active_collection(TALOS, int( len(TALOS) * 0.95) )
+        s.restraints.add_selectively_active_collection(TALOS, int( len(TALOS) * 1.00) )
 
     if len(glob.glob('rotamer*.dat')) < 1:
         print('WARNING: no rotamer data found')
