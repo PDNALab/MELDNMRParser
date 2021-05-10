@@ -22,7 +22,7 @@ header = '''data_nef_MELD_{}
       _nef_nmr_meta_data.program_version 1.0
       _nef_nmr_meta_data.creation_date   2020-03-31
       _nef_nmr_meta_data.uuid            MELD-NEF_2020-03-31
-      _nef_nmr_meta_data.coordinate_file_name 
+      _nef_nmr_meta_data.coordinate_file_name .
       
       loop_
           _nef_program_script.program_name

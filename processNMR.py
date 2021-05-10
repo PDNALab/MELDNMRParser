@@ -54,6 +54,8 @@ map_to_heavy = {
         ('LEU','HD1%'):(['CD1'],1),
         ('LEU','HD2%'):(['CD2'],1),
         ('LEU','HD%'):(['CD1','CD2'],1),
+        ('LEU','HDx%'):(['CD1','CD2'],1),
+        ('LEU','HDy%'):(['CD1','CD2'],1),
         ('LYS','HG%'):(['CG'],1),
         ('LYS','HD%'):(['CD'],1),
         ('LYS','HE%'):(['CE'],1),
@@ -88,6 +90,8 @@ map_to_heavy = {
         ('TYR','CE%'):(['CE1','CE2'],0),
         ('VAL','HG1%'):(['CG1'],1),
         ('VAL','HG2%'):(['CG2'],1),
+        ('VAL','HGx%'):(['CG1','CG2'],1),
+        ('VAL','HGy%'):(['CG1','CG2'],1),
         ('VAL','HG%'):(['CG1','CG2'],1),
         }
 
@@ -232,7 +236,9 @@ def process_peaks(peaks):
 
 
 
-
+def write_out_meld_version_restraints(restraint_block):      # NOE block as the input
+    restraint_block._raw[2] = '{}_meld'.format(restraint_block._raw[2].strip())
+    return (NEF_block(restraint_block))
 
 
 '''Examples of how to use this module
@@ -300,7 +306,8 @@ def main():
             #Otherwise non-ending loop where NEF.block_types keeps growing
             continue
         #We want to keep original data and crteate new MELD data. We will duplicate objects
-        myNOE = copy.deepcopy(NOE)
+        #myNOE = copy.deepcopy(NOE)
+        myNOE = write_out_meld_version_restraints(copy.deepcopy(NOE))
         distances = myNOE.loop_type_data['_nef_distance_restraint']
         distances = process_peaks(distances)
         distances = process_sequence(NEF,distances)
@@ -328,7 +335,8 @@ def main():
         for i,TALOS in enumerate(NEF.block_types['dihedral_restraint_list']):
             if i >= n_blocks:
                 continue
-            myTALOS = copy.deepcopy(TALOS)
+            #myTALOS = copy.deepcopy(TALOS)
+            myTALOS = write_out_meld_version_restraints(copyideepcopy(TALOS))
             dihedrals = myTALOS.loop_type_data['_nef_dihedral_restraint']
             dihedrals = process_sequence(NEF,dihedrals,TALOS=True)
             rotamers2write = write_TALOS(dihedrals)
