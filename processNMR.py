@@ -237,8 +237,11 @@ def process_peaks(peaks):
 
 
 def write_out_meld_version_restraints(restraint_block):      # NOE block as the input
-    restraint_block._raw[2] = '{}_meld'.format(restraint_block._raw[2].strip())
-    return (NEF_block(restraint_block))
+    restraint_list = list(restraint_block._raw) # has headers and list of restraints
+    for i,line in enumerate(restraint_list):
+        if 'sf_framecode' in line:
+            restraint_list[i] = '{}_meld\n'.format(restraint_list[i].strip())
+    return (NEF_block(restraint_list))
 
 
 '''Examples of how to use this module
@@ -336,7 +339,7 @@ def main():
             if i >= n_blocks:
                 continue
             #myTALOS = copy.deepcopy(TALOS)
-            myTALOS = write_out_meld_version_restraints(copyideepcopy(TALOS))
+            myTALOS = write_out_meld_version_restraints(copy.deepcopy(TALOS))
             dihedrals = myTALOS.loop_type_data['_nef_dihedral_restraint']
             dihedrals = process_sequence(NEF,dihedrals,TALOS=True)
             rotamers2write = write_TALOS(dihedrals)
