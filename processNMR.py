@@ -5,6 +5,7 @@ import pickle
 from MELD_NEF_Classes import *
 import argparse
 import copy
+import pandas as pd
 
 def parse_args():                              #in line argument parser with help 
     '''
@@ -211,7 +212,8 @@ def process_peaks(peaks):
             '''First pass changes the first ambiguos atom to heavy. Then adds the original ones to teh data frame and substitutes by the second atom'''
             peaks.loc[ (peaks['residue_name_1'] == amino) & (peaks['atom_name_1'] == atom),['upper_limit'] ] = peaks.upper_limit + distance_correction
             peaks.loc[ (peaks['residue_name_1'] == amino) & (peaks['atom_name_1'] == atom),['atom_name_1'] ] = heavy[0]
-            peaks.append(aa)            
+            #peaks.append(aa)            
+            peaks = pd.concat([peaks, aa], ignore_index=True)
             peaks.loc[ (peaks['residue_name_1'] == amino) & (peaks['atom_name_1'] == atom),['upper_limit'] ] = peaks.upper_limit + distance_correction
             peaks.loc[ (peaks['residue_name_1'] == amino) & (peaks['atom_name_1'] == atom),['atom_name_1'] ] = heavy[1]
     #Correct second atom
@@ -229,7 +231,8 @@ def process_peaks(peaks):
             '''First pass changes the first ambiguos atom to heavy. Then adds the original ones to teh data frame and substitutes by the second atom'''
             peaks.loc[ (peaks['residue_name_2'] == amino) & (peaks['atom_name_2'] == atom),['upper_limit'] ] = peaks.upper_limit + distance_correction
             peaks.loc[ (peaks['residue_name_2'] == amino) & (peaks['atom_name_2'] == atom),['atom_name_2'] ] = heavy[0]
-            peaks.append(aa)            
+            #peaks.append(aa)            
+            peaks = pd.concat([peaks, aa], ignore_index=True)
             peaks.loc[ (peaks['residue_name_2'] == amino) & (peaks['atom_name_2'] == atom),['upper_limit'] ] = peaks.upper_limit + distance_correction
             peaks.loc[ (peaks['residue_name_2'] == amino) & (peaks['atom_name_2'] == atom),['atom_name_2'] ] = heavy[1]
     return(peaks)
