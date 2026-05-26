@@ -281,7 +281,7 @@ for i,TALOS in enumerate(NEF.block_types['dihedral_restraint_list']):
     rotamers2write = write_TALOS(dihedrals)
     with open('{}/rotamers_{}.dat'.format('.',i),'w') as fo:
         fo.write(rotamers2write)
-    TALOS.loop_type_data['_nef_distance_restraint'] = dihedrals
+    TALOS.loop_type_data['_nef_dihedral_restraint'] = dihedrals
     NEF.active.append('_'.join([TALOS.type,TALOS.name]))
 
 
@@ -348,7 +348,7 @@ def main():
             rotamers2write = write_TALOS(dihedrals)
             with open('{}/rotamers_{}.dat'.format(args.directory,i),'w') as fo:
                 fo.write(rotamers2write)
-            myTALOS.loop_type_data['_nef_distance_restraint'] = dihedrals
+            myTALOS.loop_type_data['_nef_dihedral_restraint'] = dihedrals
             myTALOS.name = '{}_meld'.format(myTALOS.name)
             myTALOS.header = '_'.join(['save',myTALOS.type,myTALOS.name])
             #NEF.active.append('_'.join([myTALOS.type,myTALOS.name]))
