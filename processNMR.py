@@ -185,7 +185,7 @@ def process_sequence(NEF,peaks,TALOS=False):
         peaks.loc[ (peaks['chain_code_2'] == chain) & (peaks['sequence_code_2'] == seq),['sequence_code_2'] ] = numbering[(seq,chain)]
         if TALOS:
             peaks.loc[ (peaks['chain_code_3'] == chain) & (peaks['sequence_code_3'] == seq),['sequence_code_3'] ] = numbering[(seq,chain)]
-            peaks.loc[ (peaks['chain_code_3'] == chain) & (peaks['sequence_code_4'] == seq),['sequence_code_4'] ] = numbering[(seq,chain)]
+            peaks.loc[ (peaks['chain_code_4'] == chain) & (peaks['sequence_code_4'] == seq),['sequence_code_4'] ] = numbering[(seq,chain)]
 
     return(peaks)
 
