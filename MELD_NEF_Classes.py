@@ -10,6 +10,42 @@ from tabulate import tabulate
 import pickle
 
 
+def normalize_block_type(block_type):
+    '''Normalize different NEF block naming conventions to a canonical type.
+
+    Older files may use names like `distance_restraint_list`, while newer ones can be
+    `save_XPLOR-NIH/CNS_distance_restraints_2` or similar. They all describe the same
+    underlying restraint family, so this function standardizes them before processing.
+    '''
+    if block_type is None:
+        return None
+
+    value = str(block_type).strip().lower()
+
+    if 'distance' in value and 'restraint' in value:
+        return 'distance_restraint_list'
+    if ('dihedral' in value or 'torsion' in value) and 'restraint' in value:
+        return 'dihedral_restraint_list'
+    if 'chemical_shift' in value and 'list' in value:
+        return 'chemical_shift_list'
+    if 'molecular_system' in value:
+        return 'molecular_system'
+    if 'program_script' in value:
+        return 'program_script'
+
+    return value
+
+
+def canonical_block_name(block):
+    '''Return the canonical key used in the block registry for a NEF block.'''
+    raw_name = block.name
+    if raw_name is None and getattr(block, 'header', None):
+        raw_name = block.header.strip().replace('save_', '', 1)
+    normalized = normalize_block_type(block.type)
+    if raw_name:
+        return "_".join([normalized, str(raw_name)])
+    return normalized
+
 
 header = '''data_nef_MELD_{}
    
@@ -61,16 +97,27 @@ class NEF_system:
         self.original_file = filename
         self.directory = directory
         self.get_blocks(filename)
-        
+
+    def get_block_by_loop(self, loop_name):
+        '''Return the first block containing the requested loop key.
+
+        Some newer NEF files place the sequence data inside a block such as
+        `save_assembly` rather than a fixed `molecular_system` block name.
+        '''
+        for block in self.block_content.values():
+            if loop_name in block.loop_type_data:
+                return block
+        return None
+
     def add_block(self,block):
         '''Given a block object, we insert it into the global NEF system'''
-        if block.name:
-            block_naming = "_".join([block.type,block.name])
-        else:
-            block_naming = block.type
-            
+        block.type = normalize_block_type(block.type)
+        block_naming = canonical_block_name(block)
+        
         self.block_order.append(block_naming)
         self.block_content[block_naming] = block
+        if block.type == 'molecular_system' or '_nef_sequence' in block.loop_type_data:
+            self.block_content.setdefault('molecular_system', block)
         try: 
             self.block_types[block.type].append(block)
         except:
@@ -88,11 +135,12 @@ class NEF_system:
         with open(file_name, 'r') as fin:
             for line in fin:
                 line_strip = '{}\n'.format(line.strip())
-                if 'save_\n' in line_strip:
+                if line_strip.strip() == 'save_':
                     logic = False
-                    self.add_block(NEF_block(block))
+                    if len(block) > 0:
+                        self.add_block(NEF_block(block))
                     block = []
-                if 'save_nef_' in line_strip:
+                if line_strip.startswith('save_') and line_strip.strip() != 'save_':
                     logic = True
                 if logic:
                     block.append(line_strip)
@@ -122,7 +170,10 @@ class NEF_system:
         '''NEF.block_content['molecular_system'].loop_type_data['_nef_sequence']
         This has a pandas kind of structure. index/chain/sequence/residue/linking/residue/cis
         '''
-        data = self.block_content['molecular_system'].loop_type_data['_nef_sequence']
+        seq_block = self.get_block_by_loop('_nef_sequence')
+        if seq_block is None:
+            raise KeyError("No block with a '_nef_sequence' loop was found in the NEF file")
+        data = seq_block.loop_type_data['_nef_sequence']
         chains = data.chain_code.unique()
         self.chains = chains
         self.sequence = {}
@@ -182,6 +233,7 @@ class NEF_block:
         else:
             self.type = "_".join(header.split('_')[2:])
             self.name = None
+        self.type = normalize_block_type(self.type)
         self.header = header
         print(self.name,self.type,self.header)
         
@@ -189,14 +241,33 @@ class NEF_block:
         '''First part of the block. Tells us about the attributes in this block'''
 
         for line in data.split('\n'):
-            if self.type in line and not 'save_' in line:
-                result = line.split('{}.'.format(self.type))
-                result = result[1].split()
-                self.attributes_ordered.append(result[0])
-                self.attributes[result[0]] = result[1].rstrip()
-            else:
-                # Empty lines
-                pass
+            stripped = line.strip()
+            if not stripped or stripped.startswith('save_'):
+                continue
+            if '.' not in stripped:
+                continue
+
+            # Only parse lines that are actual NEF attribute entries, e.g.
+            # `_nef_distance_restraint_list.restraint_origin  hbond`
+            # or `_nef_nmr_meta_data.sf_category     nef_nmr_meta_data`.
+            if '_nef_' not in stripped:
+                continue
+
+            left, sep, right = stripped.partition('.')
+            if not sep:
+                continue
+            attr_name = right.split()[0] if right.split() else ''
+            if not attr_name:
+                continue
+
+            # Ignore metadata lines that do not belong to this block type.
+            if self.type and self.type not in left:
+                continue
+
+            value = stripped.split(None, 1)[1] if ' ' in stripped else ''
+            if value:
+                self.attributes_ordered.append(attr_name)
+                self.attributes[attr_name] = value.rstrip()
         print(self.type,self.attributes_ordered)
     
     def process_loop(self,data):
