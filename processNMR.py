@@ -5,7 +5,71 @@ import pickle
 from MELD_NEF_Classes import *
 import argparse
 import copy
+import glob
 import pandas as pd
+
+
+def _canonical_column_name(name):
+    if name is None:
+        return None
+    return ''.join(ch.lower() for ch in str(name) if ch.isalnum())
+
+
+def normalize_distance_limit_columns(peaks):
+    '''Normalize distance-limit columns across NEF variants.
+
+    We want to use the canonical `lower_limit` and `upper_limit` columns, but some newer
+    NEF files also include extra `lower_linear_limit` / `upper_linear_limit` values. Keep the
+    canonical limit columns when present and ignore the linear-limit variants.
+    '''
+    if peaks is None:
+        return peaks
+
+    peaks = peaks.copy()
+    peaks.columns = [str(col).strip() for col in peaks.columns]
+
+    renames = {}
+    normalized = {_canonical_column_name(col): col for col in peaks.columns}
+
+    #some NEF files have lowerlinearlimit and upperlinearlimit instead of lower_limit and upper_limit. 
+    # If the canonical names are not present, rename them to the canonical names
+    for candidate, canonical in [
+        ('lowerlinearlimit', 'lower_limit'),
+        ('upperlinearlimit', 'upper_limit'),
+        ('lowerlimit', 'lower_limit'),
+        ('upperlimit', 'upper_limit'),
+    ]:
+        if candidate in normalized and canonical not in normalized:
+            renames[normalized[candidate]] = canonical
+
+    if renames:
+        peaks = peaks.rename(columns=renames)
+
+    for column in ['lower_limit', 'upper_limit']:
+        if column not in peaks.columns:
+            continue
+        values = peaks[column]
+        if isinstance(values, pd.DataFrame):
+            values = values.iloc[:, 0]
+        peaks[column] = pd.to_numeric(values, errors='coerce')
+
+    for column_name in list(peaks.columns):
+        canonical = _canonical_column_name(column_name)
+        if canonical in {'lowerlinearlimit', 'upperlinearlimit'}:
+            peaks = peaks.drop(columns=[column_name])
+
+    # Some newer NEF files can carry repeated/duplicate limit columns. Strip them
+    # before later .loc[...] assignment, otherwise pandas refuses to write back.
+    peaks = peaks.loc[:, ~peaks.columns.duplicated()].copy()
+
+    return peaks
+
+
+def get_blocks_by_type(NEF, block_type):
+    '''Return all blocks matching the requested NEF block family.'''
+    normalized = normalize_block_type(block_type)
+    return NEF.block_types.get(normalized, [])
+
 
 def parse_args():                              #in line argument parser with help 
     '''
@@ -109,7 +173,7 @@ def write_TALOS_deprecated(dihedrals):
     '''Dihedrals will be phi or psi. Separate them. Characterize by their resid. Output maximum/minimum values for the dihedral.
     It is possible that a dihedral could be seen in two conformations--> two NMR peaks, satisfy one according to chemical shfits.
 
-    I'm going to assume that a restraint_id will never correspond to phi and psi at the same time. This is something to confirm with
+    I'm going to assume that a dihedral restraint_id will never correspond to phi and psi at the same time. This is something to confirm with
     NMR experts
     '''
     phi = ''
@@ -151,6 +215,7 @@ def write_peaks(peaks,min_CO=4):
     Peaks that are trivial to satisfy (e.g. same residue) should remove the same ambiguous peak that defines it.
     If any possible contact in a peak is trivial, remove the whole peak.
     '''
+    peaks = normalize_distance_limit_columns(peaks)
     output_noe = ''
     local_noe = ''
     for one_peak in peaks.restraint_id.unique():
@@ -175,7 +240,10 @@ def process_sequence(NEF,peaks,TALOS=False):
     TALOS data has the same keywords but 4 instances to change instead of two. IF the instances exist
     in the data frame --> change them. Otherwise do not
     '''
-    data = NEF.block_content['molecular_system'].loop_type_data['_nef_sequence']
+    seq_block = NEF.get_block_by_loop('_nef_sequence')
+    if seq_block is None:
+        raise KeyError("No block with '_nef_sequence' was found in the NEF file")
+    data = seq_block.loop_type_data['_nef_sequence']
     numbering = {}
     for seq,chain,index in zip(data.sequence_code,data.chain_code,data.index):
         numbering[(seq,chain)] = index + 1
@@ -197,6 +265,9 @@ def process_peaks(peaks):
     We will use a dictionary with all possible cases and replace by the heavy atom counterparts
     in cases whereabmiguity leads to more than one heavy atom, we will duplicate the row in the 
     pandas dataframe'''
+
+    peaks = normalize_distance_limit_columns(peaks)
+    peaks = peaks.loc[:, ~peaks.columns.duplicated()].copy()
 
     #Correct first atom
     for (amino, atom) in map_to_heavy.keys():
@@ -247,70 +318,32 @@ def write_out_meld_version_restraints(restraint_block):      # NOE block as the 
     return (NEF_block(restraint_list))
 
 
-'''Examples of how to use this module
-NEF = pickle.load(open('/ufrc/alberto.perezant/alberto.perezant/NEF/Forked_NEF/NEF/data_1_1/PDBStat_developers/Perez/trial.nef.pkl','rb'))
-NEF.peaks = {}
-for i in NEF.chains:
-    for j in NEF.chains:
-        NEF.peaks[(i,j)] = []
-
-
-NEF.active = ['molecular_system']
-for i,NOE in enumerate(NEF.block_types['distance_restraint_list']):
-    print(dir(NOE))
-    print(NOE.type,NOE.name)
-    distances = NOE.loop_type_data['_nef_distance_restraint']
-    print(NEF.sequence_names)
-    distances = process_peaks(distances)
-    distances = process_sequence(NEF,distances)
-    peaks_to_write = write_peaks(distances)
-    #Add the dataframe back into the NEF object, this will be a MELD modified one
-    #ToDO: make a block routine that adds a new block with MELD output NEF
-    NOE.loop_type_data['_nef_distance_restraint'] = distances
-    with open('{}/NOE_{}.dat'.format('.',i),'w') as fo:
-        fo.write(peaks_to_write)
-    NEF.active.append('_'.join([NOE.type,NOE.name]))
-
-
-#dihedrals just need to be  renumbered and then written to NEF/MELD output
-for i,TALOS in enumerate(NEF.block_types['dihedral_restraint_list']):
-    print(dir(TALOS))
-    print(TALOS.type,TALOS.name)
-    dihedrals = TALOS.loop_type_data['_nef_dihedral_restraint']
-    dihedrals = process_sequence(NEF,dihedrals,TALOS=True)
-    rotamers2write = write_TALOS(dihedrals)
-    with open('{}/rotamers_{}.dat'.format('.',i),'w') as fo:
-        fo.write(rotamers2write)
-    TALOS.loop_type_data['_nef_dihedral_restraint'] = dihedrals
-    NEF.active.append('_'.join([TALOS.type,TALOS.name]))
-
-
-NEF.write()
-with open('MELD_NMR_setup.py','w') as fo:
-    fo.write(templates.meld_NMR_script)
-with open('MELD_job.sh','w') as fo:
-    fo.write(templates.meld_gpu_job.format(args.name))
-'''
-    
-
-
 def main():
     args = parse_args()
     #Work in a temporary directory
     if args.directory == '.':
         args.directory = os.getcwd()
+
+    for pattern in ['local_NOE_*.dat', 'NOE_*.dat', 'rotamers_*.dat']:
+        for stale in glob.glob(os.path.join(args.directory, pattern)):
+            try:
+                os.remove(stale)
+            except OSError:
+                pass
+
     try:
         NEF = pickle.load(open(args.nef,'rb'))
     except:
         NEF = NEF_system(args.nef,args.directory)
         NEF.sequence()
-    
-    #NEF.active = ['molecular_system']
-    n_blocks = len(NEF.block_types['distance_restraint_list'])
-    for i,NOE in enumerate(NEF.block_types['distance_restraint_list']):
-        if i >= n_blocks:
-            #Otherwise non-ending loop where NEF.block_types keeps growing
-            continue
+
+    # Snapshot the original blocks before we mutate NEF by adding MELD-modified copies.
+    # Iterating over the live registry while appending to it creates an expanding list,
+    # which is why the run appeared to loop and generated hundreds of output files.
+    distance_blocks = list(NEF.block_types.get('distance_restraint_list', []))
+    dihedral_blocks = list(NEF.block_types.get('dihedral_restraint_list', []))
+
+    for i,NOE in enumerate(distance_blocks):
         #We want to keep original data and crteate new MELD data. We will duplicate objects
         #myNOE = copy.deepcopy(NOE)
         myNOE = write_out_meld_version_restraints(copy.deepcopy(NOE))
@@ -325,35 +358,26 @@ def main():
             fo.write(local_peaks)
         with open('{}/NOE_{}.dat'.format(args.directory,i),'w') as fo:
             fo.write(peaks_to_write)
-        myNOE.name = '{}_meld'.format(myNOE.name)
+        myNOE.name = myNOE.name or myNOE.header.strip().replace('save_','',1)
         myNOE.header = '_'.join(['save',myNOE.type,myNOE.name])
         NEF.add_block(myNOE)
-    
-    
+
+
     #dihedrals just need to be  renumbered and then written to NEF/MELD output
-    try: 
-        NEF.block_types['dihedral_restraint_list'] 
-        ok = 1
-    except:
-        ok = 0
-    if ok:
-        n_blocks = len(NEF.block_types['dihedral_restraint_list'])
-        for i,TALOS in enumerate(NEF.block_types['dihedral_restraint_list']):
-            if i >= n_blocks:
-                continue
-            #myTALOS = copy.deepcopy(TALOS)
-            myTALOS = write_out_meld_version_restraints(copy.deepcopy(TALOS))
-            dihedrals = myTALOS.loop_type_data['_nef_dihedral_restraint']
-            dihedrals = process_sequence(NEF,dihedrals,TALOS=True)
-            rotamers2write = write_TALOS(dihedrals)
-            with open('{}/rotamers_{}.dat'.format(args.directory,i),'w') as fo:
-                fo.write(rotamers2write)
-            myTALOS.loop_type_data['_nef_dihedral_restraint'] = dihedrals
-            myTALOS.name = '{}_meld'.format(myTALOS.name)
-            myTALOS.header = '_'.join(['save',myTALOS.type,myTALOS.name])
-            #NEF.active.append('_'.join([myTALOS.type,myTALOS.name]))
-            NEF.add_block(myTALOS)
-    
+    for i,TALOS in enumerate(dihedral_blocks):
+        #myTALOS = copy.deepcopy(TALOS)
+        myTALOS = write_out_meld_version_restraints(copy.deepcopy(TALOS))
+        dihedrals = myTALOS.loop_type_data['_nef_dihedral_restraint']
+        dihedrals = process_sequence(NEF,dihedrals,TALOS=True)
+        rotamers2write = write_TALOS(dihedrals)
+        with open('{}/rotamers_{}.dat'.format(args.directory,i),'w') as fo:
+            fo.write(rotamers2write)
+        myTALOS.loop_type_data['_nef_dihedral_restraint'] = dihedrals
+        myTALOS.name = '{}_meld'.format(myTALOS.name)
+        myTALOS.header = '_'.join(['save',myTALOS.type,myTALOS.name])
+        #NEF.active.append('_'.join([myTALOS.type,myTALOS.name]))
+        NEF.add_block(myTALOS)
+
     NEF.write()
     with open('{}/MELD_NMR_setup.py'.format(args.directory),'w') as fo:
         fo.write(templates.meld_NMR_script)
