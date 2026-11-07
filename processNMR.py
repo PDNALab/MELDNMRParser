@@ -1,13 +1,28 @@
-import templates
+from scripts import templates
 import textwrap
 import os
 import pickle
-from MELD_NEF_Classes import *
+from scripts.MELD_NEF_Classes import *
 import argparse
 import copy
 import glob
 import pandas as pd
+import sys
 
+
+
+
+def parse_args():                              #in line argument parser with help 
+    '''
+    Parse arguments for the program from command line
+    '''
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-nef', type=str, help='NEF input file or object')
+    parser.add_argument('-directory', type=str, help='Where to place the files',default='.')
+    parser.add_argument('-name', type=str, help='Name for job to submit to queues',default='NMR')
+    parser.add_argument('-y', '--yes', action='store_true',
+                    help='Overwrite existing output files without asking')
+    return(parser.parse_args())
 
 def _canonical_column_name(name):
     if name is None:
@@ -71,15 +86,6 @@ def get_blocks_by_type(NEF, block_type):
     return NEF.block_types.get(normalized, [])
 
 
-def parse_args():                              #in line argument parser with help 
-    '''
-    Parse arguments for the program from command line
-    '''
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-nef', type=str, help='NEF input file or object')
-    parser.add_argument('-directory', type=str, help='Where to place the files',default='.')
-    parser.add_argument('-name', type=str, help='Name for job to submit to queues',default='NMR')
-    return(parser.parse_args())
  
 
 map_to_heavy = {
@@ -147,8 +153,8 @@ map_to_heavy = {
         ('PRO','HGx'):(['CG'],1),
         ('PRO','HGy'):(['CG'],1),
         ('THR','HG2%'):(['CG2'],1),
-        ('TYR','HD%'):(['CD'],1),
-        ('TYR','HE%'):(['CE'],1),
+        ('TYR','HD%'):(['CD1','CD2'],1),
+        ('TYR','HE%'):(['CE1','CE2'],1),
         ('TYR','CD%'):(['CD1','CD2'],0),
         ('TYR','CD'):(['CD1','CD2'],0),
         ('TYR','CE'):(['CE1','CE2'],0),
@@ -263,7 +269,7 @@ def process_peaks(peaks):
     ''' Translate the peaks into MELD restraints. Put ambiguous H distances on the heavy atom
     add one to the upper distance treshold
     We will use a dictionary with all possible cases and replace by the heavy atom counterparts
-    in cases whereabmiguity leads to more than one heavy atom, we will duplicate the row in the 
+    in cases where abmiguity leads to more than one heavy atom, we will duplicate the row in the 
     pandas dataframe'''
 
     peaks = normalize_distance_limit_columns(peaks)
@@ -318,23 +324,51 @@ def write_out_meld_version_restraints(restraint_block):      # NOE block as the 
     return (NEF_block(restraint_list))
 
 
+def make_output_dirs(base):
+    '''Create data/, meld/ and meld_adapt/ inside base and return their paths.'''
+    dirs = {name: os.path.join(base, name) for name in ['data', 'meld', 'meld_adapt']}
+    for path in dirs.values():
+        os.makedirs(path, exist_ok=True)
+    return dirs
+
+def confirm_remove_stale(data_dir, assume_yes=False):
+    '''Warn about existing restraint files and ask before deleting them.'''
+    patterns = ['local_NOE_*.dat', 'NOE_*.dat', 'rotamers_*.dat']
+    stale = sorted(f for p in patterns for f in glob.glob(os.path.join(data_dir, p)))
+    if not stale:
+        return
+
+    print('WARNING: {} existing restraint file(s) found in {}:'.format(len(stale), data_dir))
+    for f in stale:
+        print('   ', os.path.basename(f))
+
+    if not assume_yes:
+        if not sys.stdin.isatty():
+            sys.exit('Not running interactively; rerun with --yes to overwrite. Aborting.')
+        answer = input('These files will be deleted. Continue? [y/N]: ').strip().lower()
+        if answer not in ('y', 'yes'):
+            sys.exit('Aborted by user. No files were changed.')
+
+    for f in stale:
+        try:
+            os.remove(f)
+        except OSError as e:
+            print('Could not remove {}: {}'.format(f, e))
+
+
 def main():
     args = parse_args()
     #Work in a temporary directory
     if args.directory == '.':
         args.directory = os.getcwd()
 
-    for pattern in ['local_NOE_*.dat', 'NOE_*.dat', 'rotamers_*.dat']:
-        for stale in glob.glob(os.path.join(args.directory, pattern)):
-            try:
-                os.remove(stale)
-            except OSError:
-                pass
+    dirs = make_output_dirs(args.directory)
+    confirm_remove_stale(dirs['data'], assume_yes=args.yes)
 
     try:
         NEF = pickle.load(open(args.nef,'rb'))
-    except:
-        NEF = NEF_system(args.nef,args.directory)
+    except Exception:
+        NEF = NEF_system(args.nef,dirs['data'])
         NEF.sequence()
 
     # Snapshot the original blocks before we mutate NEF by adding MELD-modified copies.
@@ -354,9 +388,9 @@ def main():
         #Add the dataframe back into the NEF object, this will be a MELD modified one
         #ToDO: make a block routine that adds a new block with MELD output NEF
         myNOE.loop_type_data['_nef_distance_restraint'] = distances
-        with open('{}/local_NOE_{}.dat'.format(args.directory,i),'w') as fo:
+        with open(os.path.join(dirs['data'], 'local_NOE_{}.dat'.format(i)), 'w') as fo:
             fo.write(local_peaks)
-        with open('{}/NOE_{}.dat'.format(args.directory,i),'w') as fo:
+        with open(os.path.join(dirs['data'], 'NOE_{}.dat'.format(i)), 'w') as fo:
             fo.write(peaks_to_write)
         myNOE.name = myNOE.name or myNOE.header.strip().replace('save_','',1)
         myNOE.header = '_'.join(['save',myNOE.type,myNOE.name])
@@ -370,7 +404,7 @@ def main():
         dihedrals = myTALOS.loop_type_data['_nef_dihedral_restraint']
         dihedrals = process_sequence(NEF,dihedrals,TALOS=True)
         rotamers2write = write_TALOS(dihedrals)
-        with open('{}/rotamers_{}.dat'.format(args.directory,i),'w') as fo:
+        with open(os.path.join(dirs['data'], 'rotamers_{}.dat'.format(i)), 'w') as fo:
             fo.write(rotamers2write)
         myTALOS.loop_type_data['_nef_dihedral_restraint'] = dihedrals
         myTALOS.name = '{}_meld'.format(myTALOS.name)
@@ -378,11 +412,17 @@ def main():
         #NEF.active.append('_'.join([myTALOS.type,myTALOS.name]))
         NEF.add_block(myTALOS)
 
-    NEF.write()
-    with open('{}/MELD_NMR_setup.py'.format(args.directory),'w') as fo:
-        fo.write(templates.meld_NMR_script)
-    with open('{}/MELD_job.sh'.format(args.directory),'w') as fo:
-        fo.write(templates.meld_gpu_job.format(args.name))
+    NEF.write(file_name=os.path.join(dirs['data'], 'MELD.nef'))
+
+    approaches = {
+    'meld':       ('MELD_NMR_setup.py',   templates.meld_NMR_script),
+    'meld_adapt': ('MELD_adapt_setup.py', templates.meld_adapt_NMR_script),}
+
+    for folder, (script_name, script_text) in approaches.items():
+        with open(os.path.join(dirs[folder], script_name), 'w') as fo:
+            fo.write(script_text)
+        with open(os.path.join(dirs[folder], 'MELD_job.sh'), 'w') as fo:
+            fo.write(templates.meld_gpu_job.format('{}_{}'.format(args.name, folder)))
 
 
 
