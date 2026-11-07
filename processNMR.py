@@ -236,8 +236,7 @@ def write_peaks(peaks,min_CO=4):
 
     return (output_noe,local_noe)
 
-
-def process_sequence(NEF,peaks,TALOS=False):
+def process_sequence(NEF, peaks, TALOS=False):
     '''USe mapping of residues from molecular system block to pass into amber-like topology numbering.
     First residue starts at 1, new chains keep numbering intead of starting over
     Here we run into an issue: pandas has dataframe.index as their internal numbering...starts at 0
@@ -250,19 +249,22 @@ def process_sequence(NEF,peaks,TALOS=False):
     if seq_block is None:
         raise KeyError("No block with '_nef_sequence' was found in the NEF file")
     data = seq_block.loop_type_data['_nef_sequence']
-    numbering = {}
-    for seq,chain,index in zip(data.sequence_code,data.chain_code,data.index):
-        numbering[(seq,chain)] = index + 1
 
-    for (seq,chain) in numbering.keys():
-        peaks.loc[ (peaks['chain_code_1'] == chain) & (peaks['sequence_code_1'] == seq),['sequence_code_1'] ] = numbering[(seq,chain)]
-        peaks.loc[ (peaks['chain_code_2'] == chain) & (peaks['sequence_code_2'] == seq),['sequence_code_2'] ] = numbering[(seq,chain)]
-        if TALOS:
-            peaks.loc[ (peaks['chain_code_3'] == chain) & (peaks['sequence_code_3'] == seq),['sequence_code_3'] ] = numbering[(seq,chain)]
-            peaks.loc[ (peaks['chain_code_4'] == chain) & (peaks['sequence_code_4'] == seq),['sequence_code_4'] ] = numbering[(seq,chain)]
+    # (sequence_code, chain) -> 1-based position in the sequence, continuous across chains.
+    # Use str keys so '-1' and -1 compare equal regardless of how pandas parsed them.
+    numbering = {(str(seq), str(chain)): pos + 1
+                 for pos, (seq, chain) in enumerate(zip(data.sequence_code, data.chain_code))}
 
-    return(peaks)
-
+    n_atoms = 4 if TALOS else 2
+    peaks = peaks.copy()
+    for k in range(1, n_atoms + 1):
+        s_col, c_col = 'sequence_code_{}'.format(k), 'chain_code_{}'.format(k)
+        keys = list(zip(peaks[s_col].astype(str), peaks[c_col].astype(str)))
+        missing = sorted({key for key in keys if key not in numbering})
+        if missing:
+            raise KeyError('Residues in restraints not found in _nef_sequence: {}'.format(missing))
+        peaks[s_col] = [numbering[key] for key in keys]
+    return peaks
 
 
 def process_peaks(peaks):
@@ -384,7 +386,7 @@ def main():
         distances = myNOE.loop_type_data['_nef_distance_restraint']
         distances = process_peaks(distances)
         distances = process_sequence(NEF,distances)
-        peaks_to_write,local_peaks = write_peaks(distances,min_CO=8)
+        peaks_to_write,local_peaks = write_peaks(distances,min_CO=5)
         #Add the dataframe back into the NEF object, this will be a MELD modified one
         #ToDO: make a block routine that adds a new block with MELD output NEF
         myNOE.loop_type_data['_nef_distance_restraint'] = distances
