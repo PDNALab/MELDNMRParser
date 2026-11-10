@@ -146,6 +146,10 @@ map_to_heavy = {
         ('PHE','HE%'):(['CE1','CE2'],1),
         ('PHE','CD%'):(['CD1','CD2'],0),
         ('PHE','CE%'):(['CE1','CE2'],0),
+        ('PHE','HDx'):(['CD1','CD2'],1),
+        ('PHE','HDy'):(['CD1','CD2'],1),
+        ('PHE','HEx'):(['CE1','CE2'],1),
+        ('PHE','HEy'):(['CE1','CE2'],1),
         ('PRO','HG%'):(['CG'],1),
         ('PRO','HD%'):(['CD'],1),
         ('PRO','HDx'):(['CD'],1),
@@ -155,6 +159,10 @@ map_to_heavy = {
         ('THR','HG2%'):(['CG2'],1),
         ('TYR','HD%'):(['CD1','CD2'],1),
         ('TYR','HE%'):(['CE1','CE2'],1),
+        ('TYR','HDx'):(['CD1','CD2'],1),
+        ('TYR','HDy'):(['CD1','CD2'],1),
+        ('TYR','HEx'):(['CE1','CE2'],1),
+        ('TYR','HEy'):(['CE1','CE2'],1),
         ('TYR','CD%'):(['CD1','CD2'],0),
         ('TYR','CD'):(['CD1','CD2'],0),
         ('TYR','CE'):(['CE1','CE2'],0),
@@ -314,6 +322,16 @@ def process_peaks(peaks):
             peaks = pd.concat([peaks, aa], ignore_index=True)
             peaks.loc[ (peaks['residue_name_2'] == amino) & (peaks['atom_name_2'] == atom),['upper_limit'] ] = peaks.upper_limit + distance_correction
             peaks.loc[ (peaks['residue_name_2'] == amino) & (peaks['atom_name_2'] == atom),['atom_name_2'] ] = heavy[1]
+    
+    for k in (1, 2):
+        col = 'atom_name_{}'.format(k)
+        left = peaks.loc[peaks[col].astype(str).str.contains(r'[xy%]$|[xy]%$'),
+                         ['residue_name_{}'.format(k), col]].drop_duplicates()
+        if len(left):
+            print('WARNING: no heavy-atom mapping for:\n{}'.format(left.to_string(index=False)))
+
+    peaks.drop_duplicates()
+    
     return(peaks)
 
 
